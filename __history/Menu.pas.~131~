@@ -1,0 +1,428 @@
+unit Menu;
+
+interface
+
+uses
+  System.SysUtils, System.Types, System.UITypes, System.Classes, System.Variants,
+  FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.Dialogs, FMX.Layouts,
+  FMX.Menus, FMX.Controls.Presentation, FMX.StdCtrls, FMX.Memo.Types,
+  FMX.ScrollBox, FMX.Memo, FMX.Edit,
+  Setting;
+
+type
+  TRecResult = record
+    TASK   : String;
+    TIME   : TDateTime;
+  end;
+
+type
+  TF_Menu = class(TForm)
+    StyleBook1: TStyleBook;
+    Memo1: TMemo;
+    MenuBar1: TMenuBar;
+    F1Key: TMenuItem;
+    F2Key: TMenuItem;
+    Lbl_Yymmdd: TLabel;
+    Lbl_Start: TLabel;
+    Label3: TLabel;
+    Lbl_End: TLabel;
+    Timer1: TTimer;
+    F3Key: TMenuItem;
+    F4Key: TMenuItem;
+    F9Key: TMenuItem;
+    Edt_Task: TEdit;
+    F12Key: TMenuItem;
+    procedure FormCreate(Sender: TObject);
+    procedure FormKeyDown(Sender: TObject; var Key: Word; var KeyChar: Char;
+      Shift: TShiftState);
+    procedure F2KeyClick(Sender: TObject);
+    procedure Timer1Timer(Sender: TObject);
+    procedure F4KeyClick(Sender: TObject);
+    procedure F1KeyClick(Sender: TObject);
+    procedure F12KeyClick(Sender: TObject);
+    procedure F9KeyClick(Sender: TObject);
+  private
+    PRecResult : Array of TRecResult;
+
+    PBolFuncKey : Array[1..12] of Boolean;
+
+    { private 宣言 }
+    procedure InitProc;
+    procedure WorkHoursKeep(AIntType : Int64);
+    procedure DataCreate;
+    procedure ChangeFuncEnabled(AIntKey : Int64; ABolEnabled : Boolean);
+  public
+    { public 宣言 }
+  end;
+
+var
+  F_Menu: TF_Menu;
+
+const
+  //画面サイズ
+  PConLargeDispHeight = 340;
+  PConLargeDispWidth  = 600;
+  PConSmallDispHeight = 80;
+  PConSmallDispWidth  = 200;
+
+  //画面位置
+  PConDispPosTop  = 5;
+  PConDispPosLeft = 5;
+
+implementation
+
+{$R *.fmx}
+
+//----------------------------------------------------------------------------//
+//  Form
+//----------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//
+//  onCreate
+//----------------------------------------------------------------------------//
+procedure TF_Menu.FormCreate(Sender: TObject);
+begin
+  //初期処理
+  InitProc;
+end;
+
+//----------------------------------------------------------------------------//
+//  onKeyDown
+//----------------------------------------------------------------------------//
+procedure TF_Menu.FormKeyDown(Sender: TObject; var Key: Word; var KeyChar: Char;
+  Shift: TShiftState);
+begin
+  case Key of
+    VKF1 : begin  //
+      F1KeyClick(Sender);
+    end;
+    VKF2 : begin  //
+      F2KeyClick(Sender);
+    end;
+    VKF4 : begin  //
+      F4KeyClick(Sender);
+    end;
+    VKF9 : begin  //
+      F9KeyClick(Sender);
+    end;
+    VKF12: begin  //終了
+      F12KeyClick(Sender);
+    end;
+  end;
+end;
+
+//----------------------------------------------------------------------------//
+//  onTimer
+//----------------------------------------------------------------------------//
+procedure TF_Menu.Timer1Timer(Sender: TObject);
+begin
+  Lbl_End.Text := FormatDateTime('hh:nn:ss', Now);
+end;
+
+//----------------------------------------------------------------------------//
+//  F1KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Menu.F1KeyClick(Sender: TObject);
+begin
+  if not (PBolFuncKey[1]) then
+  begin
+    Exit;
+  end;
+
+  F_Setting.ShowModal;
+
+  //返却されたタスクを設定
+  Edt_Task.Text := F_Setting.Task;
+end;
+
+//----------------------------------------------------------------------------//
+//  F2KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Menu.F2KeyClick(Sender: TObject);
+var
+  DStrWork : String;
+begin
+  if not (PBolFuncKey[2]) then
+  begin
+    Exit;
+  end;
+
+  if (F2Key.Text = 'F2:開始') then
+  begin
+    //作業内容が空白の場合は入力させる
+    if (Edt_Task.Text = '') then
+    begin
+      MessageDlg('作業内容が設定されていません。',TMsgDlgType.mtWarning, [TMsgDlgBtn.mbYes], 0);
+      Edt_Task.SetFocus;
+      Exit;
+    end;
+
+    F_Menu.Height := PConSmallDispHeight;
+    F_Menu.Width  := PConSmallDispWidth;
+    F2Key.Text    := 'F2:停止';
+
+    //作業時間保存
+    WorkHoursKeep(1);
+
+    //集計不可とする
+    ChangeFuncEnabled(9, False);
+  end
+  else
+  begin
+    F_Menu.Height := PConLargeDispHeight;
+    F_Menu.Width  := PConLargeDispWidth;
+    F2Key.Text    := 'F2:開始';
+
+    //作業時間保存
+    WorkHoursKeep(2);
+
+    //集計可とする
+    ChangeFuncEnabled(9, True);
+  end;
+
+  //開始時間設定
+  Lbl_Start.Text := FormatDateTime('hh:nn:ss', Now);
+  //終了時間設定
+  Lbl_End.Text := FormatDateTime('hh:nn:ss', Now);
+
+end;
+
+//----------------------------------------------------------------------------//
+//  F4KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Menu.F4KeyClick(Sender: TObject);
+begin
+  if not (PBolFuncKey[4]) then
+  begin
+    Exit;
+  end;
+  InitProc;
+end;
+
+//----------------------------------------------------------------------------//
+//  F9KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Menu.F9KeyClick(Sender: TObject);
+begin
+  if not (PBolFuncKey[9]) then
+  begin
+    Exit;
+  end;
+
+  if (F2Key.Text = 'F2:停止') then
+  begin
+    MessageDlg('作業を停止させてから集計を行ってください。',TMsgDlgType.mtWarning, [TMsgDlgBtn.mbYes], 0);
+    Exit;
+  end;
+  if (Memo1.Lines.GetText = '') then
+  begin
+    MessageDlg('作業が記録されていません。',TMsgDlgType.mtWarning, [TMsgDlgBtn.mbYes], 0);
+    Exit;
+  end;
+
+  //集計処理
+  DataCreate;
+end;
+
+//----------------------------------------------------------------------------//
+//  F12KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Menu.F12KeyClick(Sender: TObject);
+begin
+  if not (PBolFuncKey[12]) then
+  begin
+    Exit;
+  end;
+
+  Close;
+end;
+
+//----------------------------------------------------------------------------//
+//  内部処理
+//----------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//
+//  初期化処理
+//----------------------------------------------------------------------------//
+procedure TF_Menu.InitProc;
+var
+  i : Integer;
+begin
+  //画面サイズ
+  F_Menu.Height := PConLargeDispHeight;
+  F_Menu.Width  := PConLargeDispWidth;
+
+  //画面位置
+  F_Menu.Top  := PConDispPosTop;
+  F_Menu.Left := PConDispPosLeft;
+
+  //初期化
+//  Lbl_End.Text := '';
+  Edt_Task.Text := '';
+  Memo1.Lines.Clear;
+
+  F2Key.Text := 'F2:開始';
+
+  //ファンクションキー制御
+  for i := 1 to 12 do
+  begin
+    if (i in [9])
+    then ChangeFuncEnabled(i, False)
+    else ChangeFuncEnabled(i, True);
+
+
+  end;
+
+  //システム日付
+  Lbl_Yymmdd.Text := FormatDateTime('yyyy/mm/dd', Now);
+  Lbl_Start.Text  := FormatDateTime('hh:nn:ss', Now);
+
+  //フォーカス
+  Edt_Task.SetFocus;
+
+end;
+
+//----------------------------------------------------------------------------//
+//  作業時間保存処理
+//  引　数：AIntType     1:開始押下時　2:終了押下時
+//----------------------------------------------------------------------------//
+procedure TF_Menu.WorkHoursKeep(AIntType : Int64);
+var
+  DStrWork : String;
+  DStrTask : String;
+begin
+
+  if (AIntType = 1)
+  then DStrTask := '待機時間'
+  else DStrTask := Edt_Task.Text;
+
+  //時間転送
+  DStrWork := Lbl_Yymmdd.Text + ' '
+            + Lbl_Start.Text  + ' '
+            + '～'            + ' '
+            + FormatDateTime('yyyy/mm/dd', Now) + ' '
+            + Lbl_End.Text    + '　'   //作業内容の前は全角空白
+            + DStrTask;
+
+  Memo1.Lines.Add(DStrWork);
+end;
+
+//----------------------------------------------------------------------------//
+//  データ集計処理
+//----------------------------------------------------------------------------//
+procedure TF_Menu.DataCreate;
+var
+  i : Integer;
+  j : Integer;
+  Hour, Minute, Second, MicroSecond : Word;
+  DIntWork : Int64;
+  DIntIndex: Int64;
+  DIntRow  : Int64;
+  DStrWork : String;
+  DStrTask : String;
+  DStrStart: String;
+  DStrEnd  : String;
+  DDatTime1       : TDateTime;
+  DDatTime2       : TDateTime;
+  DDatElapsedTime : TDateTime;
+begin
+  //初期化
+  DIntRow := 0;
+
+  SetLength(PRecResult, DIntRow);
+
+  //F4:初期化, F12:終了以外は選択できないようにする
+  for i := 1 to 12 do
+  begin
+    if (i in [3,4,12])
+    then ChangeFuncEnabled(i, True)
+    else ChangeFuncEnabled(i, False);
+  end;
+
+  //集計
+  for i := 0 to Memo1.Lines.Count-1 do
+  begin
+    //2023/04/08 23:00:00 ～ 2023/04/09 00:30:00　振込明細テーブル作成（沖縄福祉対応）
+    DStrWork  := Memo1.Lines[i];
+    //2023/04/08 23:00:00
+    DStrStart := Copy(DStrWork,1,19);
+    //2023/04/09 00:30:00
+    DStrEnd   := Copy(DStrWork,Pos('～',DStrWork)+2,19);
+
+    //振込明細テーブル作成（沖縄福祉対応）
+    DStrTask  := Copy(DStrWork,Pos('　',DStrWork)+1,Length(DStrWork)-Pos('　',DStrWork));
+
+    //経過時間取得
+    DDatTime1 := StrToDateTime(DStrStart);
+    DDatTime2 := StrToDateTime(DStrEnd);
+    if (DDatTime1 > DDatTime2)
+    then DDatElapsedTime := DDatTime1 - DDatTime2
+    else DDatElapsedTime := DDatTime2 - DDatTime1;
+
+//    //経過時間を時、分、秒に変換
+//    DecodeTime(DDatElapsedTime, Hour, Minute, Second, MicroSecond);
+
+    //保存先検索
+    DIntIndex := -1;
+    for j := Low(PRecResult) to High(PRecResult) do
+    begin
+      if (PRecResult[j].TASK = DStrTask) then
+      begin
+        DIntIndex := j;
+        Break;
+      end;
+    end;
+    if (DIntIndex = -1) then
+    begin
+      //配列追加
+      Inc(DIntRow);
+      SetLength(PRecResult, DIntRow);
+
+      PRecResult[DIntRow-1].TASK   := DStrTask;
+      DIntIndex := DIntRow-1;
+
+    end;
+    PRecResult[DIntIndex].TIME   := PRecResult[DIntIndex].TIME + DDatElapsedTime;
+  end;
+
+  //画面表示
+  Memo1.Lines.Add('------------------------------------------');
+  Memo1.Lines.Add('◇ 集計結果 ◇');
+  for i := Low(PRecResult) to High(PRecResult) do
+  begin
+    DStrWork := PRecResult[i].TASK + ' '
+              + Copy(DateTimeToStr(PRecResult[i].TIME),12,8);
+    Memo1.Lines.Add(DStrWork);
+  end;
+end;
+
+//----------------------------------------------------------------------------//
+//  FunctionキーのEnabled制御
+//----------------------------------------------------------------------------//
+procedure TF_Menu.ChangeFuncEnabled(AIntKey : Int64; ABolEnabled : Boolean);
+begin
+  //変数変更
+  PBolFuncKey[AIntKey] := ABolEnabled;
+
+  case AIntKey of
+    1 : begin
+      F1Key.Enabled  := PBolFuncKey[1];
+    end;
+    2 : begin
+      F2Key.Enabled  := PBolFuncKey[2];
+    end;
+    3 : begin
+      F3Key.Enabled  := PBolFuncKey[3];
+    end;
+    4 : begin
+      F4Key.Enabled  := PBolFuncKey[4];
+    end;
+    9 : begin
+      F9Key.Enabled  := PBolFuncKey[9];
+    end;
+    12 : begin
+      F12Key.Enabled := PBolFuncKey[12];
+    end;
+  end;
+end;
+
+
+end.

@@ -1,0 +1,376 @@
+unit Setting;
+
+interface
+
+uses
+  System.SysUtils, System.Types, System.UITypes, System.Classes, System.Variants,
+  FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.Dialogs, System.Rtti,
+  FMX.Grid.Style, FMX.Grid, FMX.Controls.Presentation, FMX.ScrollBox,
+  IniFiles, System.IOUtils, FMX.Menus;
+
+type
+  TF_Setting = class(TForm)
+    StyleBook1: TStyleBook;
+    Grd_Task: TStringGrid;
+    Clm_Check: TCheckColumn;
+    Clm_Task: TStringColumn;
+    MenuBar1: TMenuBar;
+    F1Key: TMenuItem;
+    F12Key: TMenuItem;
+    F2Key: TMenuItem;
+    F9Key: TMenuItem;
+    procedure FormShow(Sender: TObject);
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
+    procedure F12KeyClick(Sender: TObject);
+    procedure FormKeyDown(Sender: TObject; var Key: Word; var KeyChar: Char;
+      Shift: TShiftState);
+    procedure F1KeyClick(Sender: TObject);
+    procedure F2KeyClick(Sender: TObject);
+    procedure Grd_TaskEditingDone(Sender: TObject; const ACol, ARow: Integer);
+    procedure F9KeyClick(Sender: TObject);
+  private
+    { private 宣言 }
+    PObjTaskList : TStringList;
+
+    PIntCount : Int64;   //Iniファイル指定の作業個数
+    PStrTask  : String;  //今回作業する作業内容（メイン画面に返却する文字列）
+    PBolF9Key : Boolean; //変更した作業内容は記録済みか
+
+    procedure GetIniFile;
+    procedure SetIniFile;
+    procedure InitProc;
+  public
+    { public 宣言 }
+    property Task : String  read PStrTask write PStrTask;
+  end;
+
+var
+  F_Setting: TF_Setting;
+
+const
+  //Grid内列番号
+  PConGridCheck = 0;
+  PConGridTask  = 1;
+
+  PConProgram = 'TimeTracker';
+
+implementation
+
+{$R *.fmx}
+
+//----------------------------------------------------------------------------//
+//  Form
+//----------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//
+//  onShow
+//----------------------------------------------------------------------------//
+procedure TF_Setting.FormShow(Sender: TObject);
+begin
+  //リスト生成
+  PObjTaskList := TStringList.Create;
+
+  //iniファイル読込
+  GetIniFile;
+  //初期化
+  InitProc;
+end;
+
+//----------------------------------------------------------------------------//
+//  onClose
+//----------------------------------------------------------------------------//
+procedure TF_Setting.FormClose(Sender: TObject; var Action: TCloseAction);
+var
+  i : Integer;
+begin
+  //記録
+  if not (PBolF9Key) then
+  begin
+    if (MessageDlg('変更した作業内容が記録されていません。保存しますか。',TMsgDlgType.mtConfirmation, [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo], 0) = 6) then
+    begin
+      F9KeyClick(Sender);
+    end;
+  end;
+
+  //リスト解放
+  PObjTaskList.Free;
+
+//***  TODO : onEditingDoneよりonCloseが先に呼ばれるためTaskが初期化されてしまう ***//
+//  //Grid初期化
+//  for i := 0 to Grd_Task.RowCount-1 do
+//  begin
+//    Grd_Task.Cells[PConGridCheck, i] := 'False';
+//  end;
+end;
+
+//----------------------------------------------------------------------------//
+//  onEditingDone
+//----------------------------------------------------------------------------//
+procedure TF_Setting.Grd_TaskEditingDone(Sender: TObject; const ACol,
+  ARow: Integer);
+var
+  i : Integer;
+  DIntCount : Int64;
+begin
+  //初期化
+  DIntCount := 0;
+
+  //----------------------------------//
+  //  チェックボックス変更
+  //----------------------------------//
+  if (ACol = PConGridCheck) then
+  begin
+    //作業内容がない行のチェック制御
+    if (Grd_Task.Cells[PConGridTask, ARow] = '') then
+    begin
+      MessageDlg('作業内容が設定されていません。',TMsgDlgType.mtWarning, [TMsgDlgBtn.mbYes], 0);
+
+      //チェック取り消し
+      Grd_Task.Cells[PConGridCheck, ARow] := 'False';
+    end
+    else
+    begin
+      //複数チェック制御
+      for i := 0 to Grd_Task.RowCount-1 do
+      begin
+        if (Grd_Task.Cells[PConGridCheck, i] = 'True') then
+        begin
+          //最初に発見したチェック済み作業内容を保存
+          if (DIntCount = 0) then
+          begin
+            PStrTask := Grd_Task.Cells[PConGridTask, i];
+          end;
+          Inc(DIntCount);
+        end;
+      end;
+      if (DIntCount > 1) then
+      begin
+        MessageDlg('一つのタスクのみ選択可能です。',TMsgDlgType.mtWarning, [TMsgDlgBtn.mbYes], 0);
+
+        //チェック取り消し
+        Grd_Task.Cells[PConGridCheck, ARow] := 'False';
+      end;
+    end;
+  end
+  else
+  //----------------------------------//
+  //  作業内容変更
+  //----------------------------------//
+  if (ACol = PConGridTask) then
+  begin
+    //作業内容が変更されているか確認
+    if (Grd_Task.Cells[PConGridTask, ARow] <> PObjTaskList[ARow]) then
+    begin
+      //未記録状態とする
+      PBolF9Key := False;
+    end;
+  end;
+end;
+
+//----------------------------------------------------------------------------//
+//  onKeyDown
+//----------------------------------------------------------------------------//
+procedure TF_Setting.FormKeyDown(Sender: TObject; var Key: Word;
+  var KeyChar: Char; Shift: TShiftState);
+begin
+  case Key of
+    VKF1 : begin  //
+      F1KeyClick(Sender);
+    end;
+    VKF2 : begin  //
+      F2KeyClick(Sender);
+    end;
+    VKF9 : begin  //
+      F9KeyClick(Sender);
+    end;
+    VKF12: begin  //終了
+      F12KeyClick(Sender);
+    end;
+  end;
+end;
+
+//----------------------------------------------------------------------------//
+//  F1KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Setting.F1KeyClick(Sender: TObject);
+begin
+  //行追加
+  Grd_Task.RowCount := Grd_Task.RowCount + 1;
+end;
+
+//----------------------------------------------------------------------------//
+//  F3KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Setting.F2KeyClick(Sender: TObject);
+var
+  i : Integer;
+  DIntRow : Int64;
+begin
+  DIntRow := Grd_Task.Row;
+
+  if (DIntRow >= Grd_Task.RowCount-1) then
+  begin
+    //削除行が最終行の場合
+    Grd_Task.Cells[PConGridCheck, DIntRow].Empty;
+    Grd_Task.Cells[PConGridTask , DIntRow].Empty;
+  end
+  else
+  begin
+    //削除行移行の行を前詰め
+    for i := DIntRow+1 to Grd_Task.RowCount-1 do
+    begin
+      Grd_Task.Cells[PConGridCheck, i-1] := Grd_Task.Cells[PConGridCheck, i];
+      Grd_Task.Cells[PConGridTask , i-1] := Grd_Task.Cells[PConGridTask , i];
+    end;
+  end;
+
+  //最終行のクリア
+  Grd_Task.Cells[PConGridCheck, Grd_Task.RowCount-1].Empty;
+  Grd_Task.Cells[PConGridTask , Grd_Task.RowCount-1].Empty;
+  //行削除
+  Grd_Task.RowCount := Grd_Task.RowCount - 1;
+end;
+
+//----------------------------------------------------------------------------//
+//  F9KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Setting.F9KeyClick(Sender: TObject);
+begin
+  //iniファイル保存
+  SetIniFile;
+  //完了メッセージ
+  MessageDlg('記録処理が完了しました。',TMsgDlgType.mtInformation, [TMsgDlgBtn.mbYes], 0);
+  //記録済みフラグ
+  PBolF9Key := True;
+end;
+
+//----------------------------------------------------------------------------//
+//  F12KeyClick
+//----------------------------------------------------------------------------//
+procedure TF_Setting.F12KeyClick(Sender: TObject);
+begin
+  Close;
+end;
+
+//----------------------------------------------------------------------------//
+//  内部処理
+//----------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//
+//  iniファイル取得処理
+//----------------------------------------------------------------------------//
+procedure TF_Setting.GetIniFile;
+var
+  DIntCount   : Int64;
+  DStrSection : String;
+  DStrWork    : String;
+  IniFile : TIniFile;
+begin
+  //初期化
+  PIntCount := 0;
+  DIntCount := 0;
+  PObjTaskList.Clear;
+  IniFile := TIniFile.Create(ChangeFileExt(ExtractFilePath(ParamStr(0)), PConProgram + '.ini'));
+
+  try
+    //セクション読込
+    DStrSection := '作業内容';
+
+    with IniFile do
+    begin
+      while True do
+      begin
+        //作業内容保存
+        DStrWork := ReadString(DStrSection, 'TASK'+FormatCurr('00',PIntCount+1), '');
+        PObjTaskList.Add(DStrWork);
+
+        Inc(PIntCount);
+
+        //作業内容の個数取得（iniファイルに記載）
+        DIntCount := ReadInteger(DStrSection, 'COUNT', 0);
+        if (PIntCount >= DIntCount) then
+        begin
+          Break;
+        end;
+      end;
+    end;
+  finally
+    IniFile.Free;
+  end;
+end;
+
+//----------------------------------------------------------------------------//
+//  IniFile書き込み処理
+//----------------------------------------------------------------------------//
+procedure TF_Setting.SetIniFile;
+var
+  i: Integer;
+  IniFIlePath : String;
+  DStrSection : String;
+  IniFile : TIniFile;
+begin
+  //-------------------//
+  //  バックアップ作成
+  //-------------------//
+  //iniファイル保存先取得
+  IniFilePath := ExtractFileDir(ParamStr(0))
+               + '\'
+               + PConProgram;
+
+  //ファイルのコピー
+  TFile.Copy(IniFilePath+'.ini', IniFilePath+'_BK.ini', True);
+
+  //-------------------//
+  //  書き込み
+  //-------------------//
+  IniFile := TIniFile.Create(ChangeFileExt(ExtractFilePath(ParamStr(0)), PConProgram + '.ini'));
+
+  try
+    with IniFile do
+    begin
+      //セクション読込
+      DStrSection := '作業内容';
+
+      //作業内容の個数保存
+      WriteInteger(DStrSection, 'COUNT', Grd_Task.RowCount);
+
+      //作業内容保存
+      for i := 0 to Grd_Task.RowCount-1 do
+      begin
+        WriteString(DStrSection, 'TASK'+FormatCurr('00',i+1), Grd_Task.Cells[PConGridTask, i]);
+      end;
+    end;
+  finally
+    IniFile.Free;
+  end;
+end;
+
+//----------------------------------------------------------------------------//
+//  初期化処理
+//----------------------------------------------------------------------------//
+procedure TF_Setting.InitProc;
+var
+  i : Integer;
+begin
+  //初期化
+  PStrTask  := '';
+  PBolF9Key := True;
+
+  //グリッド設定
+  for i := 0 to PIntCount - 1 do
+  begin
+    //現在のGrid行数とiniファイル指定の個数が異なるためGrid行拡張
+    if (i > Grd_Task.RowCount-1) then
+    begin
+      Grd_Task.RowCount := Grd_Task.RowCount + 1;
+    end;
+
+    //チェックボックス初期化
+    Grd_Task.Cells[PConGridCheck, i] := 'False';
+    //作業内容設定
+    Grd_Task.Cells[PConGridTask , i] := PObjTaskList[i];
+  end;
+
+  //フォーカス
+  Grd_Task.SetFocus;
+end;
+
+end.
